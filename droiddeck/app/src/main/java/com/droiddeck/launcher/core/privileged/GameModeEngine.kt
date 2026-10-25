@@ -73,9 +73,9 @@ object GameModeEngine {
         aggressiveActive = aggressive
         val pkg = context.packageName
 
-        // Record initial state for clean restoration
+        // Record initial state for clean restoration (filter out 4 to prevent saving our own limit as default)
         val curBg = exec(context, "settings get global background_process_limit").trim()
-        savedBgProcessLimit = curBg.takeIf { it.isNotEmpty() && it != "null" }
+        savedBgProcessLimit = curBg.takeIf { it.isNotEmpty() && it != "null" && it != "4" }
 
         if (aggressive) {
             val sem = exec(context, "settings get global sem_enhanced_cpu_responsiveness").trim()
@@ -173,20 +173,20 @@ object GameModeEngine {
 
         val pkg = context.packageName
         val restoreScript = buildString {
-            // Restore background process limit
+            // Restore background process limit (always delete if value was 4 or null)
             val savedBg = savedBgProcessLimit
-            if (savedBg != null) {
+            if (savedBg != null && savedBg != "4") {
                 append("settings put global background_process_limit $savedBg 2>/dev/null; ")
             } else {
                 append("settings delete global background_process_limit 2>/dev/null; ")
             }
             append("cmd game reset $pkg 2>/dev/null || cmd game mode 1 $pkg 2>/dev/null; ")
+            append("cmd power set-fixed-performance-mode-enabled false 2>/dev/null; ")
 
             if (aggressiveActive) {
                 savedSemEnhanced?.let { append("settings put global sem_enhanced_cpu_responsiveness $it 2>/dev/null; ") }
                 savedRestrictedPerf?.let { append("settings put global restricted_device_performance $it 2>/dev/null; ") }
                 savedAdaptiveBattery?.let { append("settings put global adaptive_battery_management_enabled $it 2>/dev/null; ") }
-                append("cmd power set-fixed-performance-mode-enabled false 2>/dev/null; ")
             }
         }
 
@@ -215,7 +215,7 @@ object GameModeEngine {
                 val savedBg = loadMarker(appContext)
                 val pkg = appContext.packageName
                 val script = buildString {
-                    if (savedBg.isNotEmpty() && savedBg != "null") {
+                    if (savedBg.isNotEmpty() && savedBg != "null" && savedBg != "4") {
                         append("settings put global background_process_limit $savedBg 2>/dev/null; ")
                     } else {
                         append("settings delete global background_process_limit 2>/dev/null; ")

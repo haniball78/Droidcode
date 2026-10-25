@@ -1650,7 +1650,9 @@ class SessionService : Service() {
             }
             Log.i(TAG, "proot tracer $pid: nice $nice (asked for $TRACER_NICE)")
             try {
-                com.droiddeck.launcher.core.privileged.PrivilegedBridge.boostAndProtectSession(pid)
+                if (SessionPrefs.advancedMasterEnabled(this@SessionService)) {
+                    com.droiddeck.launcher.core.privileged.PrivilegedBridge.boostAndProtectSession(pid)
+                }
             } catch (t: Throwable) {
                 Log.w(TAG, "privileged boost", t)
             }
