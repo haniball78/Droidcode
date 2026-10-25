@@ -238,14 +238,34 @@ object WirelessAdbFix {
             }
         }
 
+    fun clearPairing(context: Context) {
+        val directory = context.applicationContext.noBackupFilesDir
+        File(directory, HOST_FILE).delete()
+        File(directory, CONNECTION_FILE).delete()
+    }
+
     fun startPrivilegedDaemonWithSavedPairing(context: Context): Boolean {
         val appContext = context.applicationContext
         val saved = savedConnection(appContext)
         val host = saved?.host ?: LOOPBACK
-        val port = saved?.port ?: localConnectPort(appContext) ?: return false
-        return runCatching {
+        // Always try to discover current live connect port first (since port changes on reboot / toggle)
+        val discovered = localConnectPort(appContext)
+        val port = discovered ?: saved?.port ?: return false
+        val firstAttempt = runCatching {
             startPrivilegedDaemonViaAdb(appContext, host, port)
             true
         }.getOrDefault(false)
+        if (firstAttempt) return true
+
+        // If the first attempt failed and we used discovered port, try saved port (or vice versa)
+        val altPort = if (port == discovered) saved?.port else discovered
+        if (altPort != null && altPort != port) {
+            val secondAttempt = runCatching {
+                startPrivilegedDaemonViaAdb(appContext, host, altPort)
+                true
+            }.getOrDefault(false)
+            if (secondAttempt) return true
+        }
+        return false
     }
 }

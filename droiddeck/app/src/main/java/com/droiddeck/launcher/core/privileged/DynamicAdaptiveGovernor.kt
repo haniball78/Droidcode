@@ -52,8 +52,8 @@ object DynamicAdaptiveGovernor {
     /** Start adaptive monitoring for an active game session. */
     @Synchronized
     fun start(context: Context, sessionGen: Int, pid: Int) {
-        if (!SessionPrefs.dynamicGovernor(context)) {
-            Log.i(TAG, "governor: disabled in settings")
+        if (!SessionPrefs.advancedMasterEnabled(context) || !SessionPrefs.dynamicGovernor(context)) {
+            Log.i(TAG, "governor: disabled in settings or master switch off")
             return
         }
         stop(context) // clean previous if any

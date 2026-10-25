@@ -428,8 +428,12 @@ class SessionService : Service() {
 
         Log.i(TAG, GpuClockPin.start(this))
         Log.i(TAG, GameThreadHints.start(this))
-        Log.i(TAG, com.droiddeck.launcher.core.privileged.GameModeEngine.apply(this, gen))
-        Log.i(TAG, com.droiddeck.launcher.core.privileged.AppFreezerEngine.apply(this, gen))
+        if (SessionPrefs.advancedMasterEnabled(this)) {
+            Log.i(TAG, com.droiddeck.launcher.core.privileged.GameModeEngine.apply(this, gen))
+            Log.i(TAG, com.droiddeck.launcher.core.privileged.AppFreezerEngine.apply(this, gen))
+        } else {
+            Log.i(TAG, "advanced performance engines: SKIPPED (master switch off)")
+        }
 
         val size = SessionState.outputSize
         val guest = ArrayList<String>()
@@ -610,8 +614,10 @@ class SessionService : Service() {
         if (pid > 1) {
             raiseTracer(pid, gen)
             SessionEvents.guestStarted(pid)
-            com.droiddeck.launcher.core.privileged.GameModeEngine.boostSessionProcess(this, pid, gen)
-            com.droiddeck.launcher.core.privileged.DynamicAdaptiveGovernor.start(this, gen, pid)
+            if (SessionPrefs.advancedMasterEnabled(this)) {
+                com.droiddeck.launcher.core.privileged.GameModeEngine.boostSessionProcess(this, pid, gen)
+                com.droiddeck.launcher.core.privileged.DynamicAdaptiveGovernor.start(this, gen, pid)
+            }
         } else {
             SessionEvents.record("guest.start_failed", mapOf("pid" to pid))
             SessionEvents.fail("GUEST_START_FAILED", "The guest process could not be started", pid)

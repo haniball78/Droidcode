@@ -370,6 +370,7 @@ private fun DaemonActivationCard(ctx: Context) {
     val scope = rememberCoroutineScope()
     var startingAdb by remember { mutableStateOf(false) }
     var showPairDialog by remember { mutableStateOf(false) }
+    var oneTapFailed by remember { mutableStateOf(false) }
 
     val devOptionsOn = remember { mutableStateOf(isDevOptionsOn(ctx)) }
     val wirelessAdbOn = remember { mutableStateOf(isWirelessAdbOn(ctx)) }
@@ -474,7 +475,7 @@ private fun DaemonActivationCard(ctx: Context) {
             Column(
                 Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(pal.good.copy(alpha = 0.10f))
                     .border(1.dp, pal.good.copy(alpha = 0.35f), RoundedCornerShape(8.dp)).padding(10.dp),
-                verticalArrangement = Arrangement.spacedBy(6.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 Text("✅ جاهز للتشغيل الفوري (Ready to Start)", fontWeight = FontWeight.Bold, color = pal.good, fontSize = 13.sp)
                 Text(
@@ -484,6 +485,7 @@ private fun DaemonActivationCard(ctx: Context) {
                 PrimaryButton(if (startingAdb) "Activating..." else "Start Privileged Engine (One-Tap)", compact = true, enabled = !startingAdb) {
                     scope.launch {
                         startingAdb = true
+                        oneTapFailed = false
                         val ok = withContext(Dispatchers.IO) {
                             com.droiddeck.launcher.core.WirelessAdbFix.startPrivilegedDaemonWithSavedPairing(ctx)
                         }
@@ -491,9 +493,53 @@ private fun DaemonActivationCard(ctx: Context) {
                             withContext(Dispatchers.IO) { PrivilegedBridge.refresh() }
                             Toast.makeText(ctx, "Privileged Daemon started successfully!", Toast.LENGTH_SHORT).show()
                         } else {
-                            Toast.makeText(ctx, "Could not connect. Ensure Wireless Debugging is enabled.", Toast.LENGTH_LONG).show()
+                            oneTapFailed = true
+                            Toast.makeText(ctx, "Could not connect with saved pairing. Try re-pairing with a new code.", Toast.LENGTH_LONG).show()
                         }
                         startingAdb = false
+                    }
+                }
+
+                // If One-Tap failed or if user wants to re-pair after reboot
+                if (oneTapFailed) {
+                    Column(
+                        Modifier.fillMaxWidth().clip(RoundedCornerShape(6.dp)).background(colors.error.copy(alpha = 0.12f))
+                            .border(1.dp, colors.error.copy(alpha = 0.40f), RoundedCornerShape(6.dp)).padding(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        Text("⚠️ تعذر الاتصال التلقائي بنقرة واحدة", fontWeight = FontWeight.Bold, color = colors.error, fontSize = 12.sp)
+                        Text(
+                            "قد يكون منفذ التصحيح تغير بعد إعادة تشغيل الهاتف أو أزال نظام أندرويد الإقران السابق. يمكنك إعادة إدخال رمز إقران جديد فوراً:",
+                            fontSize = 11.sp, color = colors.onBackground
+                        )
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                            Box(Modifier.weight(1f)) {
+                                PrimaryButton("إدخال رمز إقران جديد", compact = true) { showPairDialog = true }
+                            }
+                            Box(Modifier.weight(1f)) {
+                                SecondaryButton("إقران عبر الإشعار", compact = true) {
+                                    com.droiddeck.launcher.core.WirelessAdbPairingService.start(ctx)
+                                    Toast.makeText(ctx, "Pull down notification shade to enter code", Toast.LENGTH_LONG).show()
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Fallback actions: always accessible
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                    Box(Modifier.weight(1f)) {
+                        SecondaryButton("إعادة الإقران (Re-pair)", compact = true) {
+                            showPairDialog = true
+                        }
+                    }
+                    Box(Modifier.weight(1f)) {
+                        SecondaryButton("مسح الإقران السابق", compact = true) {
+                            com.droiddeck.launcher.core.WirelessAdbFix.clearPairing(ctx)
+                            isPaired.value = false
+                            oneTapFailed = false
+                            Toast.makeText(ctx, "تم مسح الإقران. يمكنك الآن الاقتران برمز جديد.", Toast.LENGTH_SHORT).show()
+                        }
                     }
                 }
             }

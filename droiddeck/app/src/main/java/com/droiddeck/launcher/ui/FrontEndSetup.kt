@@ -1,5 +1,6 @@
 package com.droiddeck.launcher.ui
 
+import android.widget.Toast
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.FocusRequester
@@ -529,12 +530,16 @@ private fun AdvancedSetupTab(
     val pal = LocalPalette.current
     val colors = MaterialTheme.colorScheme
 
+    var masterEnabled by remember { mutableStateOf(SessionPrefs.advancedMasterEnabled(ctx)) }
     var gameModeEngine by remember { mutableStateOf(SessionPrefs.gameModeEngine(ctx)) }
     var gameModeAggressive by remember { mutableStateOf(SessionPrefs.gameModeAggressive(ctx)) }
     var dynamicGovernor by remember { mutableStateOf(SessionPrefs.dynamicGovernor(ctx)) }
     var deepSystemDoze by remember { mutableStateOf(SessionPrefs.deepSystemDoze(ctx)) }
     var freezeBloatware by remember { mutableStateOf(SessionPrefs.freezeBloatware(ctx)) }
     var freezeUserApps by remember { mutableStateOf(SessionPrefs.freezeUserApps(ctx)) }
+
+    var restoring by remember { mutableStateOf(false) }
+    var safeRestoreReport by remember { mutableStateOf<String?>(null) }
 
     var liveMetrics by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
     var verificationReport by remember { mutableStateOf<String?>(null) }
@@ -552,6 +557,95 @@ private fun AdvancedSetupTab(
                 liveMetrics = metrics
             }
             delay(3_000)
+        }
+    }
+
+    // ── Master Kill-Switch & Safe Restore Card ───────────────────
+    val masterControlCard: @Composable () -> Unit = {
+        SettingsGroup(stringResource(R.string.setup_adv_master_group)) {
+            ToggleRow(
+                host = host,
+                key = "adv-master-enable",
+                label = stringResource(R.string.setup_adv_master_toggle),
+                hint = if (masterEnabled) stringResource(R.string.setup_adv_master_hint_on) else stringResource(R.string.setup_adv_master_hint_off),
+                checked = masterEnabled,
+            ) { on ->
+                masterEnabled = on
+                SessionPrefs.setAdvancedMasterEnabled(ctx, on)
+                if (!on) {
+                    // Completely revert all modifications immediately
+                    scope.launch(Dispatchers.IO) {
+                        com.droiddeck.launcher.core.privileged.GameModeEngine.restore(ctx, 0)
+                        com.droiddeck.launcher.core.privileged.AppFreezerEngine.restore(ctx, 0)
+                        com.droiddeck.launcher.core.privileged.DynamicAdaptiveGovernor.stop(ctx)
+                        liveMetrics = com.droiddeck.launcher.core.privileged.GameModeEngine.runLiveVerification(ctx) +
+                            com.droiddeck.launcher.core.privileged.AppFreezerEngine.runDiagnostic(ctx) +
+                            com.droiddeck.launcher.core.privileged.DynamicAdaptiveGovernor.getDiagnosticReport(ctx)
+                        withContext(Dispatchers.Main) {
+                            Toast.makeText(ctx, ctx.getString(R.string.setup_adv_master_disabled_toast), Toast.LENGTH_LONG).show()
+                        }
+                    }
+                }
+            }
+
+            // Safe Restore Action Row
+            ActionRow(
+                label = stringResource(R.string.setup_adv_safe_restore_title),
+                hint = stringResource(R.string.setup_adv_safe_restore_hint),
+                button = if (restoring) stringResource(R.string.setup_adv_restoring) else stringResource(R.string.setup_adv_safe_restore_btn),
+                onClick = {
+                    if (restoring) return@ActionRow
+                    scope.launch {
+                        restoring = true
+                        safeRestoreReport = null
+                        withContext(Dispatchers.IO) {
+                            com.droiddeck.launcher.core.privileged.GameModeEngine.testRestoreNow(ctx)
+                            com.droiddeck.launcher.core.privileged.AppFreezerEngine.restore(ctx, 0)
+                            com.droiddeck.launcher.core.privileged.DynamicAdaptiveGovernor.stop(ctx)
+                        }
+                        liveMetrics = withContext(Dispatchers.IO) {
+                            com.droiddeck.launcher.core.privileged.GameModeEngine.runLiveVerification(ctx) +
+                                com.droiddeck.launcher.core.privileged.AppFreezerEngine.runDiagnostic(ctx) +
+                                com.droiddeck.launcher.core.privileged.DynamicAdaptiveGovernor.getDiagnosticReport(ctx)
+                        }
+                        safeRestoreReport = ctx.getString(R.string.setup_adv_safe_restore_success)
+                        restoring = false
+                    }
+                }
+            )
+
+            if (!safeRestoreReport.isNullOrEmpty()) {
+                Box(
+                    Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 6.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(pal.good.copy(alpha = 0.12f))
+                        .border(1.dp, pal.good.copy(alpha = 0.40f), RoundedCornerShape(8.dp))
+                        .padding(10.dp)
+                ) {
+                    Text(
+                        safeRestoreReport.orEmpty(),
+                        fontSize = 12.sp,
+                        color = colors.onBackground,
+                    )
+                }
+            }
+
+            if (!masterEnabled) {
+                Box(
+                    Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 8.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(colors.error.copy(alpha = 0.12f))
+                        .border(1.dp, colors.error.copy(alpha = 0.35f), RoundedCornerShape(8.dp))
+                        .padding(10.dp)
+                ) {
+                    Text(
+                        stringResource(R.string.setup_adv_master_disabled_banner),
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = colors.error,
+                    )
+                }
+            }
         }
     }
 
@@ -577,6 +671,7 @@ private fun AdvancedSetupTab(
                 label = stringResource(R.string.setup_adv_gamemode),
                 hint = stringResource(R.string.setup_adv_gamemode_hint),
                 checked = gameModeEngine,
+                enabled = masterEnabled,
             ) { on ->
                 gameModeEngine = on
                 SessionPrefs.setGameModeEngine(ctx, on)
@@ -587,7 +682,7 @@ private fun AdvancedSetupTab(
                 label = stringResource(R.string.setup_adv_aggressive),
                 hint = stringResource(R.string.setup_adv_aggressive_hint),
                 checked = gameModeAggressive,
-                enabled = gameModeEngine,
+                enabled = masterEnabled && gameModeEngine,
             ) { on ->
                 gameModeAggressive = on
                 SessionPrefs.setGameModeAggressive(ctx, on)
@@ -598,7 +693,7 @@ private fun AdvancedSetupTab(
                 label = stringResource(R.string.setup_adv_dynamic_gov),
                 hint = stringResource(R.string.setup_adv_dynamic_gov_hint),
                 checked = dynamicGovernor,
-                enabled = gameModeEngine,
+                enabled = masterEnabled && gameModeEngine,
             ) { on ->
                 dynamicGovernor = on
                 SessionPrefs.setDynamicGovernor(ctx, on)
@@ -614,6 +709,7 @@ private fun AdvancedSetupTab(
                 label = stringResource(R.string.setup_adv_deep_doze),
                 hint = stringResource(R.string.setup_adv_deep_doze_hint),
                 checked = deepSystemDoze,
+                enabled = masterEnabled,
             ) { on ->
                 deepSystemDoze = on
                 SessionPrefs.setDeepSystemDoze(ctx, on)
@@ -624,6 +720,7 @@ private fun AdvancedSetupTab(
                 label = stringResource(R.string.setup_adv_freeze_bloat),
                 hint = stringResource(R.string.setup_adv_freeze_bloat_hint),
                 checked = freezeBloatware,
+                enabled = masterEnabled,
             ) { on ->
                 freezeBloatware = on
                 SessionPrefs.setFreezeBloatware(ctx, on)
@@ -634,6 +731,7 @@ private fun AdvancedSetupTab(
                 label = stringResource(R.string.setup_adv_freeze_user_apps),
                 hint = stringResource(R.string.setup_adv_freeze_user_apps_hint),
                 checked = freezeUserApps,
+                enabled = masterEnabled,
             ) { on ->
                 freezeUserApps = on
                 SessionPrefs.setFreezeUserApps(ctx, on)
@@ -649,9 +747,11 @@ private fun AdvancedSetupTab(
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                     Text("Active Profile", fontSize = 12.sp, color = colors.onSurfaceVariant)
                     Text(
-                        if (active) (if (aggressive) "🔥 TURBO (Aggressive)" else "❄️ COOL (Load Reducer)") else "⚪ STANDBY (Engages with game)",
+                        if (!masterEnabled) "🔴 DISABLED (Master Off)"
+                        else if (active) (if (aggressive) "🔥 TURBO (Aggressive)" else "❄️ COOL (Load Reducer)")
+                        else "⚪ STANDBY (Engages with game)",
                         fontSize = 12.sp, fontWeight = FontWeight.SemiBold,
-                        color = if (active) (if (aggressive) colors.tertiary else pal.good) else colors.onSurfaceVariant,
+                        color = if (!masterEnabled) colors.error else if (active) (if (aggressive) colors.tertiary else pal.good) else colors.onSurfaceVariant,
                     )
                 }
 
@@ -665,7 +765,9 @@ private fun AdvancedSetupTab(
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                     Text("Affinity Target", fontSize = 12.sp, color = colors.onSurfaceVariant)
                     Text(
-                        if (aggressive) "Cores 2-7 (0xfc - All Perf + Prime)" else "Cores 2-6 (0x7c - 5x A720 Perf, X4 Off)",
+                        if (!masterEnabled) "Default (Android Scheduler)"
+                        else if (aggressive) "Cores 2-7 (0xfc - All Perf + Prime)"
+                        else "Cores 2-6 (0x7c - 5x A720 Perf, X4 Off)",
                         fontSize = 12.sp, fontFamily = FontFamily.Monospace, color = colors.onBackground,
                     )
                 }
@@ -701,7 +803,7 @@ private fun AdvancedSetupTab(
                             }
                         },
                         modifier = Modifier.weight(1f),
-                        enabled = privStatus.isActive && !verifying,
+                        enabled = masterEnabled && privStatus.isActive && !verifying,
                         shape = RoundedCornerShape(8.dp),
                     ) {
                         Text(if (verifying) stringResource(R.string.setup_adv_test_busy) else stringResource(R.string.setup_adv_test_apply), fontSize = 12.sp)
@@ -769,6 +871,7 @@ private fun AdvancedSetupTab(
     if (wide) {
         Row(horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.Top) {
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                masterControlCard()
                 privilegedCard()
                 gameModeGroup()
                 freezerGroup()
@@ -781,6 +884,7 @@ private fun AdvancedSetupTab(
         }
     } else {
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            masterControlCard()
             privilegedCard()
             gameModeGroup()
             freezerGroup()

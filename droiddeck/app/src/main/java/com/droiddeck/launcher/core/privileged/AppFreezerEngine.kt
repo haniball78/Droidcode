@@ -133,6 +133,7 @@ object AppFreezerEngine {
     @Synchronized
     fun apply(context: Context, sessionGen: Int = 0): String {
         activeGen.set(sessionGen)
+        if (!SessionPrefs.advancedMasterEnabled(context)) return "app freezer: disabled (master switch off)"
         if (applied) return "freezer: already active (gen=$sessionGen)"
 
         val results = mutableListOf<String>()

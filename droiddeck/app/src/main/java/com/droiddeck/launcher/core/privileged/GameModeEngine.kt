@@ -65,6 +65,7 @@ object GameModeEngine {
     @Synchronized
     fun apply(context: Context, sessionGen: Int = 0): String {
         activeGen.set(sessionGen)
+        if (!SessionPrefs.advancedMasterEnabled(context)) return "game mode: disabled (master switch off)"
         if (!SessionPrefs.gameModeEngine(context)) return "game mode: disabled in settings"
         if (applied) return "game mode: already active"
 

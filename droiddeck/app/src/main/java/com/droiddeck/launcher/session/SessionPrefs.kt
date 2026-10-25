@@ -469,6 +469,13 @@ object SessionPrefs {
         prefs(context).edit().putBoolean("gpuClockPin", on).apply()
     }
 
+    /** Master Advanced Optimizations Kill-Switch. When false, completely disables all advanced features and prevents any OS alterations. */
+    fun advancedMasterEnabled(context: Context): Boolean = prefs(context).getBoolean("advancedMasterEnabled", true)
+
+    fun setAdvancedMasterEnabled(context: Context, on: Boolean) {
+        prefs(context).edit().putBoolean("advancedMasterEnabled", on).apply()
+    }
+
     /** Game Mode Engine — privileged low-overhead performance governor and RAM trimmer. */
     fun gameModeEngine(context: Context): Boolean = prefs(context).getBoolean("gameModeEngine", true)
 
